@@ -179,16 +179,14 @@ class Player(discord.VoiceProtocol):
 
         self._connected = False
         await self._reconnecting.wait()
+        await asyncio.sleep(0.1)
         
-        if self.guild and self.guild.me and self.guild.me.voice and self.guild.me.voice.channel:
+        if self.guild.me.voice and self.guild.me.voice.channel:
             self._connected = True
             self._connection_event.set()
-            logger.debug("Reconnected during move; skipping _destroy() in _disconnected_wait.")
+            logger.info("Reconnected during move; skipping _destroy() in _disconnected_wait.")
             return
             
-        if self._connected:
-            return
-
         await self._destroy()
         
     def _inactivity_task_callback(self, task: asyncio.Task[bool]) -> None:
