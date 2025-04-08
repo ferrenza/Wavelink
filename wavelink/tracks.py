@@ -53,6 +53,12 @@ _source_mapping: dict[TrackSource | str | None, str] = {
     TrackSource.YouTube: "ytsearch",
     TrackSource.SoundCloud: "scsearch",
     TrackSource.YouTubeMusic: "ytmsearch",
+    TrackSource.AppleMusic: "amsearch",
+    TrackSource.Deezer: "dzsearch",
+    TrackSource.YandexMusic: "ymsearch",
+    TrackSource.VkMusic: "vksearch",
+    TrackSource.Tidal: "tdsearch",
+    TrackSource.Spotify: "spsearch",
 }
 
 

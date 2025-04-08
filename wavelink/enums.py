@@ -62,7 +62,12 @@ class TrackSource(enum.Enum):
     YouTube = 0
     YouTubeMusic = 1
     SoundCloud = 2
-
+    AppleMusic = 3
+    Deezer = 4
+    YandexMusic = 5
+    VkMusic = 6
+    Tidal = 7
+    Spotify = 8
 
 class DiscordVoiceCloseType(enum.Enum):
     """Enum representing the various Discord Voice Websocket Close Codes.
