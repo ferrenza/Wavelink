@@ -135,6 +135,7 @@ class Player(discord.VoiceProtocol):
         self._last_update: int | None = None
         self._last_position: int = 0
         self._ping: int = -1
+        self._endpoint: str | None = None
 
         self._connected: bool = False
         self._connection_event: asyncio.Event = asyncio.Event()
@@ -710,7 +711,12 @@ class Player(discord.VoiceProtocol):
         Returns ``-1`` if no player update event has been received or the player is not connected.
         """
         return self._ping
-
+        
+    @property
+    def endpoint(self) -> str | None:
+        """Returns the voice endpoint of the player."""
+        return self._endpoint
+        
     @property
     def playing(self) -> bool:
         """Returns whether the :class:`~Player` is currently playing a track and is connected.
@@ -778,6 +784,7 @@ class Player(discord.VoiceProtocol):
     async def on_voice_server_update(self, data: VoiceServerUpdatePayload, /) -> None:
         self._voice_state["voice"]["token"] = data["token"]
         self._voice_state["voice"]["endpoint"] = data["endpoint"]
+        self._endpoint = data["endpoint"]
 
         await self._dispatch_voice_update()
 
