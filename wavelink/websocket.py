@@ -111,9 +111,13 @@ class Websocket:
         heartbeat: float = self.node.heartbeat
         uri: str = f"{self.node.uri.removesuffix('/')}/v4/websocket"
         github: str = "https://github.com/PythonistaGuild/Wavelink/issues"
+        current_attempt = 0
+        initial_retries = self.node._retries
+        total_retries_display = str(initial_retries) if initial_retries is not None else '∞'
 
         while True:
             try:
+                current_attempt += 1
                 self.socket = await session.ws_connect(url=uri, heartbeat=heartbeat, headers=self.headers)  # type: ignore
             except Exception as e:
                 if isinstance(e, aiohttp.WSServerHandshakeError) and e.status == 401:
@@ -135,7 +139,7 @@ class Websocket:
                 break
 
             if retries == 0:
-                logger.warning(
+                logger.error(
                     '%r was unable to successfully connect/reconnect to Lavalink after "%s" connection attempt. This Node has exhausted the retry count.',
                     self.node,
                     retries + 1,
@@ -147,8 +151,13 @@ class Websocket:
             if retries:
                 retries -= 1
 
-            delay: float = self.backoff.calculate()
-            logger.info('%r retrying websocket connection in "%s" seconds.', self.node, delay)
+            delay: float
+            if self.node._retry_interval is not None:
+                delay = self.node._retry_interval
+            else:
+                # Fallback if not set
+                delay = self.backoff.calculate()
+            logger.info('%r (Attempt %s/%s) retrying websocket connection in "%s" seconds.', self.node, current_attempt, total_retries_display, delay)
 
             await asyncio.sleep(delay)
 

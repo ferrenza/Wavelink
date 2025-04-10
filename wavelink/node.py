@@ -142,6 +142,7 @@ class Node:
         session: aiohttp.ClientSession | None = None,
         heartbeat: float = 15.0,
         retries: int | None = None,
+        retry_interval: float | None = None,
         client: discord.Client | None = None,
         resume_timeout: int = 60,
         inactive_player_timeout: int | None = 300,
@@ -153,6 +154,7 @@ class Node:
         self._session = session or aiohttp.ClientSession()
         self._heartbeat = heartbeat
         self._retries = retries
+        self._retry_interval = retry_interval
         self._client = client
         self._resume_timeout = resume_timeout
 
