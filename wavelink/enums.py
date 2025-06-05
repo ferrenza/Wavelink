@@ -70,39 +70,53 @@ class TrackSource(enum.Enum):
     Spotify = 8
 
 class DiscordVoiceCloseType(enum.Enum):
-    """Enum representing the various Discord Voice Websocket Close Codes.
+    """Enum representing the various Discord Voice WebSocket Close Codes.
+
+    These codes explain why the voice WebSocket connection was closed.
+    Most are documented in Discord's developer docs, but some are newly observed.
+    Clients should decide reconnect logic based on the specific code.
 
     Attributes
     ----------
-    CLOSE_NORMAL
-        1000
-    UNKNOWN_OPCODE
-        4001
-    FAILED_DECODE_PAYLOAD
-        4002
-    NOT_AUTHENTICATED
-        4003
-    AUTHENTICATION_FAILED
-        4004
-    ALREADY_AUTHENTICATED
-        4005
-    SESSION_INVALID
-        4006
-    SESSION_TIMEOUT
-        4009
-    SERVER_NOT_FOUND
-        4011
-    UNKNOWN_PROTOCOL
-        4012
-    DISCONNECTED
-        4014
-    VOICE_SERVER_CRASHED
-        4015
-    UNKNOWN_ENCRYPTION_MODE
-        4016
+    CLOSE_NORMAL : 1000
+        Normal closure (standard WebSocket code).
+    GOING_AWAY : 1001
+        Connection is going away (e.g. browser tab closed).
+    UNKNOWN_OPCODE : 4001
+        An unknown opcode was sent.
+    FAILED_DECODE_PAYLOAD : 4002
+        Payload could not be decoded.
+    NOT_AUTHENTICATED : 4003
+        Client sent a message before identifying.
+    AUTHENTICATION_FAILED : 4004
+        Authentication failed.
+    ALREADY_AUTHENTICATED : 4005
+        Client sent multiple identify payloads.
+    SESSION_INVALID : 4006
+        Session is invalid.
+    SESSION_TIMEOUT : 4009
+        Session timed out.
+    SERVER_NOT_FOUND : 4011
+        The target voice server was not found.
+    UNKNOWN_PROTOCOL : 4012
+        An unsupported protocol was specified.
+    DISCONNECTED : 4014
+        Disconnect individual client (e.g. kicked, main session dropped). Should not reconnect.
+    VOICE_SERVER_CRASHED : 4015
+        Voice server crashed. Try resuming the session.
+    UNKNOWN_ENCRYPTION_MODE : 4016
+        Unrecognized encryption mode specified.
+    BAD_REQUEST : 4020
+        Malformed or bad voice payload. Undocumented.
+    RATE_LIMIT_EXCEEDED : 4021
+        Disconnected due to voice rate limit being exceeded. Should not reconnect. Undocumented.
+    DISCONNECTED_ALL_CLIENTS : 4022
+        Disconnects all clients (e.g. channel deleted, voice server changed).
+        Should not reconnect. Behavior varies by context (e.g., channel deletion vs. server migration).
     """
 
-    CLOSE_NORMAL = 1000  # Not Discord but standard websocket
+    CLOSE_NORMAL = 1000
+    GOING_AWAY = 1001
     UNKNOWN_OPCODE = 4001
     FAILED_DECODE_PAYLOAD = 4002
     NOT_AUTHENTICATED = 4003
@@ -115,6 +129,9 @@ class DiscordVoiceCloseType(enum.Enum):
     DISCONNECTED = 4014
     VOICE_SERVER_CRASHED = 4015
     UNKNOWN_ENCRYPTION_MODE = 4016
+    BAD_REQUEST = 4020
+    RATE_LIMIT_EXCEEDED = 4021
+    DISCONNECTED_ALL_CLIENTS = 4022
 
 
 class AutoPlayMode(enum.Enum):
