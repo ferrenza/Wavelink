@@ -162,148 +162,125 @@ class Websocket:
             await asyncio.sleep(delay)
 
     async def keep_alive(self) -> None:
+        """The main websocket keep-alive loop."""
         assert self.socket is not None
 
-        while True:
+        while not self.socket.closed:
             try:
                 message: aiohttp.WSMessage = await self.socket.receive()
 
-                if message.type in (  # pyright: ignore[reportUnknownMemberType]
-                    aiohttp.WSMsgType.CLOSED,
-                    aiohttp.WSMsgType.CLOSING,
-                ):
-                    asyncio.create_task(self.connect())
-                    break
-
-                if message.data is None:  # pyright: ignore[reportUnknownMemberType]
-                    logger.debug("Received an empty message from Lavalink websocket. Disregarding.")
-                    continue
-                    
-                # Make sure data valid as JSON
-                if isinstance(message.data, (str, bytes, bytearray)):
-                    try:
-                        data: WebsocketOP = message.json()
-                    except (TypeError, ValueError) as e:
-                        logger.error(f"Failed to parse WebSocket message: {e}. Data: {message.data}")
-                        continue  # Skip msg if not valid
-                else:
-                    logger.warning(f"Received non-JSON message: {message.data}. Skipping.")
-                    continue  # Skip non-JSON
-
-                data: WebsocketOP = message.json()
-
-                if data["op"] == "ready":
-                    resumed: bool = data["resumed"]
-                    session_id: str = data["sessionId"]
-
-                    self.node._status = NodeStatus.CONNECTED
-                    self.node._session_id = session_id
-
-                    await self._update_node()
-
-                    ready_payload: NodeReadyEventPayload = NodeReadyEventPayload(
-                        node=self.node, resumed=resumed, session_id=session_id
+                # --- CRITICAL FIX: Handle ALL close message types first ---
+                # This now includes WSMsgType.CLOSE, which carries the 1001 code.
+                if message.type in (aiohttp.WSMsgType.CLOSE, aiohttp.WSMsgType.CLOSED, aiohttp.WSMsgType.CLOSING):
+                    logger.warning(
+                        "Websocket connection to %r is closing or has been closed (code: %s, reason: '%s'). Attempting to reconnect...",
+                        self.node,
+                        message.data,  # This will contain the close code (e.g., 1001)
+                        message.extra
                     )
-                    self.dispatch("node_ready", ready_payload)
-
-                elif data["op"] == "playerUpdate":
-                    playerup: Player | None = self.get_player(data["guildId"])
-                    state: PlayerState = data["state"]
-
-                    updatepayload: PlayerUpdateEventPayload = PlayerUpdateEventPayload(player=playerup, state=state)
-                    self.dispatch("player_update", updatepayload)
-
-                    if playerup:
-                        asyncio.create_task(playerup._update_event(updatepayload))
-
-                elif data["op"] == "stats":
-                    statspayload: StatsEventPayload = StatsEventPayload(data=data)
-                    self.node._total_player_count = statspayload.players
-                    self.dispatch("stats_update", statspayload)
-
-                elif data["op"] == "event":
-                    player: Player | None = self.get_player(data["guildId"])
-
-                    if data["type"] == "TrackStartEvent":
-                        track: Playable = Playable(data["track"])
-
-                        startpayload: TrackStartEventPayload = TrackStartEventPayload(player=player, track=track)
-                        self.dispatch("track_start", startpayload)
-
-                        if player:
-                            asyncio.create_task(player._track_start(startpayload))
-
-                    elif data["type"] == "TrackEndEvent":
-                        track: Playable = Playable(data["track"])
-                        reason: str = data["reason"]
-
-                        if player and reason != "replaced":
-                            player._current = None
-
-                        endpayload: TrackEndEventPayload = TrackEndEventPayload(player=player, track=track, reason=reason)
-                        self.dispatch("track_end", endpayload)
-
-                        if player:
-                            asyncio.create_task(player._auto_play_event(endpayload))
-
-                    elif data["type"] == "TrackExceptionEvent":
-                        track: Playable = Playable(data["track"])
-                        exception: TrackExceptionPayload = data["exception"]
-
-                        excpayload: TrackExceptionEventPayload = TrackExceptionEventPayload(
-                            player=player, track=track, exception=exception
-                        )
-
-                        LOGGER_TRACK.error(
-                            "A Lavalink TrackException was received on %r for player %r: %s, caused by: %s, with severity: %s",
-                            self.node,
-                            player,
-                            exception.get("message", ""),
-                            exception["cause"],
-                            exception["severity"],
-                        )
-                        self.dispatch("track_exception", excpayload)
-
-                    elif data["type"] == "TrackStuckEvent":
-                        track: Playable = Playable(data["track"])
-                        threshold: int = data["thresholdMs"]
-
-                        stuckpayload: TrackStuckEventPayload = TrackStuckEventPayload(
-                            player=player, track=track, threshold=threshold
-                        )
-                        self.dispatch("track_stuck", stuckpayload)
-
-                    elif data["type"] == "WebSocketClosedEvent":
-                        code: int = data["code"]
-                        reason: str = data["reason"]
-                        by_remote: bool = data["byRemote"]
-
-                        wcpayload: WebsocketClosedEventPayload = WebsocketClosedEventPayload(
-                            player=player, code=code, reason=reason, by_remote=by_remote
-                        )
-                        self.dispatch("websocket_closed", wcpayload)
-
-                        if player:
-                            asyncio.create_task(player._disconnected_wait(code, by_remote))
-
-                    else:
-                        other_payload: ExtraEventPayload = ExtraEventPayload(node=self.node, player=player, data=data)
-                        self.dispatch("extra_event", other_payload)
-                else:
-                    logger.debug("'Received an unknown OP from Lavalink '%s'. Disregarding.", data["op"])
-
+                    asyncio.create_task(self.connect())
+                    break  # Exit the loop, this task is done.
 
             except asyncio.CancelledError:
-                # Task dibatalkan, keluar dari loop
-                logger.info("WebSocket keep-alive task was cancelled.")
+                logger.debug("Keep-alive task for node %r was cancelled.", self.node)
                 break
-
-            except Exception as e:
-                # Tangani exception yang tidak terduga
-                logger.error("An unexpected error occurred in the WebSocket connection: %s", e)
-                logger.info("Attempting to reconnect...")
+            except (aiohttp.ClientError, aiohttp.ClientPayloadError) as e:
+                # This handles abrupt connection loss (hard disconnects, RTO).
+                logger.error("Websocket connection to %r lost: %s. Attempting to reconnect...", self.node, e)
+                if not self.socket.closed:
+                    await self.socket.close(code=4000) # Use a non-standard code to indicate an abnormal closure
                 asyncio.create_task(self.connect())
                 break
+
+            # If we are here, the message is not a close signal and the connection is alive.
+            # Now, we process it as a data message.
+            try:
+                if message.data is None:
+                    continue
+
+                try:
+                    data: WebsocketOP = message.json()
+                except (TypeError, ValueError):
+                    logger.error("Failed to parse JSON message from Lavalink. Data: %s", message.data)
+                    continue
+
+                op = data.get("op")
+                logger.debug("Received OP '%s' from node %r", op, self.node)
+
+                if op == "ready":
+                    self.node._status = NodeStatus.CONNECTED
+                    self.node._session_id = data["sessionId"]
+                    await self._update_node()
+                    payload = NodeReadyEventPayload(node=self.node, resumed=data["resumed"], session_id=data["sessionId"])
+                    self.dispatch("node_ready", payload)
+
+                elif op == "playerUpdate":
+                    player = self.get_player(data["guildId"])
+                    payload = PlayerUpdateEventPayload(player=player, state=data["state"])
+                    self.dispatch("player_update", payload)
+                    if player:
+                        asyncio.create_task(player._update_event(payload))
+
+                elif op == "stats":
+                    payload = StatsEventPayload(data=data)
+                    self.node._total_player_count = payload.players
+                    self.dispatch("stats_update", payload)
+
+                elif op == "event":
+                    player: Player | None = self.get_player(data["guildId"])
+                    event_type = data.get("type")
+
+                    if event_type == "TrackStartEvent":
+                        track = Playable(data["track"])
+                        payload = TrackStartEventPayload(player=player, track=track)
+                        self.dispatch("track_start", payload)
+                        if player:
+                            asyncio.create_task(player._track_start(payload))
+
+                    elif event_type == "TrackEndEvent":
+                        track = Playable(data["track"])
+                        reason = data["reason"]
+                        if player and reason != "replaced":
+                            player._current = None
+                        payload = TrackEndEventPayload(player=player, track=track, reason=reason)
+                        self.dispatch("track_end", payload)
+                        if player:
+                            asyncio.create_task(player._auto_play_event(payload))
+
+                    elif event_type == "TrackExceptionEvent":
+                        track = Playable(data["track"])
+                        exception = data["exception"]
+                        payload = TrackExceptionEventPayload(player=player, track=track, exception=exception)
+                        LOGGER_TRACK.error(
+                            "A Lavalink TrackException was received on %r for player %r: %s, caused by: %s, with severity: %s",
+                            self.node, player, exception.get("message", ""), exception["cause"], exception["severity"],
+                        )
+                        self.dispatch("track_exception", payload)
+
+                    elif event_type == "TrackStuckEvent":
+                        track = Playable(data["track"])
+                        threshold = data["thresholdMs"]
+                        payload = TrackStuckEventPayload(player=player, track=track, threshold=threshold)
+                        self.dispatch("track_stuck", payload)
+
+                    elif event_type == "WebSocketClosedEvent":
+                        code, reason, by_remote = data["code"], data["reason"], data["byRemote"]
+                        payload = WebsocketClosedEventPayload(player=player, code=code, reason=reason, by_remote=by_remote)
+                        self.dispatch("websocket_closed", payload)
+                        if player:
+                            asyncio.create_task(player._disconnected_wait(code, by_remote))
+                    
+                    else:
+                        payload = ExtraEventPayload(node=self.node, player=player, data=data)
+                        self.dispatch("extra_event", payload)
+
+                else:
+                    logger.warning("Received unknown OP from Lavalink: '%s'. Disregarding.", data.get("op"))
+
+            except Exception as e:
+                logger.exception("An unexpected error occurred while processing a Lavalink message: %s", e)
+
+        logger.debug("Keep-alive task for node %r has finished and exited the loop.", self.node)
 
     def get_player(self, guild_id: str | int) -> Player | None:
         return self.node.get_player(int(guild_id))
