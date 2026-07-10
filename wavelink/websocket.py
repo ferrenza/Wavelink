@@ -196,10 +196,23 @@ class Websocket:
                     resumed: bool = data["resumed"]
                     session_id: str = data["sessionId"]
 
+                    old_players = list(self.node._players.values())
+
                     self.node._status = NodeStatus.CONNECTED
                     self.node._session_id = session_id
 
                     await self._update_node()
+
+                    if not resumed and old_players:
+                        for player in old_players:
+                            try:
+                                await player.disconnect()
+                            except Exception as e:
+                                logger.debug(
+                                    "Failed to disconnect player %s after session resume failed: %s",
+                                    player.guild.id,
+                                    e,
+                                )
 
                     ready_payload: NodeReadyEventPayload = NodeReadyEventPayload(
                         node=self.node, resumed=resumed, session_id=session_id
@@ -326,6 +339,13 @@ class Websocket:
                 await self.socket.close()
             except Exception:
                 pass
+
+        # Disconnect all players before clearing the players dict
+        for player in self.node._players.copy().values():
+            try:
+                await player.disconnect()
+            except Exception as e:
+                logger.debug("Failed to disconnect player %s during cleanup: %s", player.guild.id, e)
 
         self.node._status = NodeStatus.DISCONNECTED
         self.node._session_id = None
