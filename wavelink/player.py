@@ -351,12 +351,13 @@ class Player(discord.VoiceProtocol):
 
         if populate_track:
             seeds.insert(0, populate_track)
-
         spotify: list[str] = [t.identifier for t in seeds if t.source == "spotify"]
         youtube: list[str] = [t.identifier for t in seeds if t.source == "youtube"]
+        deezer: list[str] = [t.identifier for t in seeds if t.source == "deezer"]
 
         spotify_query: str | None = None
         youtube_query: str | None = None
+        deezer_query: str | None = None
 
         count: int = len(self.queue.history)
         changed_by: int = min(3, count) if self._history_count is None else count - self._history_count
@@ -380,6 +381,9 @@ class Player(discord.VoiceProtocol):
             elif track.source == "youtube":
                 youtube[0] = track.identifier
 
+            elif track.source == "deezer":
+                deezer.insert(0, track.identifier)
+
         if spotify:
             spotify_seeds: list[str] = spotify[:3]
             spotify_query = f"sprec:seed_tracks={','.join(spotify_seeds)}&limit=10"
@@ -391,6 +395,11 @@ class Player(discord.VoiceProtocol):
             ytm_seed: str = youtube[0]
             youtube_query = f"https://music.youtube.com/watch?v={ytm_seed}8&list=RD{ytm_seed}"
             self._add_to_previous_seeds(ytm_seed)
+
+        if deezer:
+            dz_seed: str = deezer[0]
+            deezer_query = f"dzrec:{dz_seed}"
+            self._add_to_previous_seeds(dz_seed)
 
         async def _search(query: str | None) -> T_a:
             if query is None:
@@ -407,7 +416,11 @@ class Player(discord.VoiceProtocol):
             tracks: list[Playable] = search.tracks.copy() if isinstance(search, Playlist) else search
             return tracks
 
-        results: tuple[T_a, T_a] = await asyncio.gather(_search(spotify_query), _search(youtube_query))
+        results: tuple[T_a, T_a, T_a] = await asyncio.gather(
+            _search(spotify_query),
+            _search(youtube_query),
+            _search(deezer_query)
+        )
 
         # track for result in results for track in result...
         filtered_r: list[Playable] = [t for r in results for t in r]
