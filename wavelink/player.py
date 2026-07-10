@@ -367,7 +367,7 @@ class Player(discord.VoiceProtocol):
         changed_history: list[Playable] = self.queue.history[::-1]
 
         added: int = 0
-        for i in range(min(changed_by, 3)):
+        for i in reversed(range(min(changed_by, 3))):
             track: Playable = changed_history[i]
 
             if added == 2 and track.source == "spotify":
