@@ -189,7 +189,7 @@ class Player(discord.VoiceProtocol):
             return
             
         await self._destroy()
-        
+
     def _inactivity_task_callback(self, task: asyncio.Task[bool]) -> None:
         cancelled: bool = False
 
@@ -770,6 +770,7 @@ class Player(discord.VoiceProtocol):
         self._ping = payload.ping
 
     async def on_voice_state_update(self, data: GuildVoiceStatePayload, /) -> None:
+        logger.debug("Player %s received Voice Server Update: %s", self.guild, data)
         channel_id = data["channel_id"]
 
         if not channel_id:
@@ -781,7 +782,18 @@ class Player(discord.VoiceProtocol):
         self._voice_state["voice"]["session_id"] = data["session_id"]
         self.channel = self.client.get_channel(int(channel_id))  # type: ignore
 
+        if not data.get("deaf", False):
+            guild = self.guild
+            if guild:
+                member = guild.me
+                if member:
+                    try:
+                        await member.edit(deafen=True, reason="Privacy Protect (Don't Undeafen)")
+                    except Exception:
+                        pass
+
     async def on_voice_server_update(self, data: VoiceServerUpdatePayload, /) -> None:
+        logger.debug("Player %s received Voice Server Update: %s", self.guild, data)
         self._voice_state["voice"]["token"] = data["token"]
         self._voice_state["voice"]["endpoint"] = data["endpoint"]
         self._endpoint = data["endpoint"]
