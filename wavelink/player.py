@@ -354,10 +354,12 @@ class Player(discord.VoiceProtocol):
         spotify: list[str] = [t.identifier for t in seeds if t.source == "spotify"]
         youtube: list[str] = [t.identifier for t in seeds if t.source == "youtube"]
         deezer: list[str] = [t.identifier for t in seeds if t.source == "deezer"]
+        applemusic: list[Playable] = [t for t in seeds if t.source in ("applemusic", "apple")]
 
         spotify_query: str | None = None
         youtube_query: str | None = None
         deezer_query: str | None = None
+        applemusic_query: str | None = None
 
         count: int = len(self.queue.history)
         changed_by: int = min(3, count) if self._history_count is None else count - self._history_count
@@ -384,6 +386,12 @@ class Player(discord.VoiceProtocol):
             elif track.source == "deezer":
                 deezer.insert(0, track.identifier)
 
+            elif track.source in ("applemusic", "apple"):
+                if not applemusic:
+                    applemusic.append(track)
+                else:
+                    applemusic[0] = track
+
         if spotify:
             spotify_seeds: list[str] = spotify[:3]
             spotify_query = f"sprec:seed_tracks={','.join(spotify_seeds)}&limit=10"
@@ -401,14 +409,26 @@ class Player(discord.VoiceProtocol):
             deezer_query = f"dzrec:{dz_seed}"
             self._add_to_previous_seeds(dz_seed)
 
-        async def _search(query: str | None) -> T_a:
+        if applemusic:
+            am_seed_track = applemusic[0]
+            am_seed_id = am_seed_track.identifier
+            applemusic_query = f"amrec:{am_seed_id}"
+            self._add_to_previous_seeds(am_seed_id)
+
+        async def _search(query: str | None, fallback_query: str | None = None) -> T_a:
             if query is None:
                 return []
 
             try:
                 search: wavelink.Search = await Pool.fetch_tracks(query, node=self._node)
             except (LavalinkLoadException, LavalinkException):
-                return []
+                search = None
+
+            if not search and fallback_query:
+                try:
+                    search = await Pool.fetch_tracks(fallback_query, node=self._node)
+                except Exception:
+                    search = None
 
             if not search:
                 return []
@@ -416,10 +436,13 @@ class Player(discord.VoiceProtocol):
             tracks: list[Playable] = search.tracks.copy() if isinstance(search, Playlist) else search
             return tracks
 
-        results: tuple[T_a, T_a, T_a] = await asyncio.gather(
+        am_fallback = f"ytmsearch:{applemusic[0].title} {applemusic[0].author}" if applemusic else None
+
+        results = await asyncio.gather(
             _search(spotify_query),
             _search(youtube_query),
-            _search(deezer_query)
+            _search(deezer_query),
+            _search(applemusic_query, fallback_query=am_fallback)
         )
 
         # track for result in results for track in result...
@@ -1149,6 +1172,59 @@ class Player(discord.VoiceProtocol):
 
         if self.playing and seek:
             await self.seek(self.position)
+
+    async def set_audio_config(
+        self,
+        *,
+        bitrate: int | None = None,
+        vbr: bool | None = None,
+        constrained: bool | None = None,
+        resampling_quality: str | None = None,
+        opus_encoder_complexity: int | None = None,
+    ) -> Any:
+        """Set custom audio encoder configuration (bitrate, vbr, quality) for this player.
+
+        Parameters
+        ----------
+        bitrate: int | None
+            The target bitrate in bits per second (e.g. 8000 for 8kbps, 64000, 160000, or -1 for MAX).
+        vbr: bool | None
+            True for Variable Bitrate, False for Constant Bitrate (CBR).
+        constrained: bool | None
+            True or False for bitrate constraint.
+        resampling_quality: str | None
+            Quality string: 'HIGHEST', 'HIGH', 'MEDIUM', or 'LOW'.
+        opus_encoder_complexity: int | None
+            Encoder complexity level from 0 to 10.
+        """
+        assert self.guild is not None
+
+        payload: dict[str, Any] = {}
+        if bitrate is not None:
+            payload["bitrate"] = bitrate
+        if vbr is not None:
+            payload["vbr"] = vbr
+        if constrained is not None:
+            payload["constrained"] = constrained
+        if resampling_quality is not None:
+            payload["resamplingQuality"] = resampling_quality
+        if opus_encoder_complexity is not None:
+            payload["opusEncoderComplexity"] = opus_encoder_complexity
+
+        if not payload:
+            return None
+
+        return await self.node._update_audio(self.guild.id, data=payload)
+
+    async def set_bitrate(self, bitrate: int, /) -> Any:
+        """Shortcut method to set the audio bitrate (in bits per second) for this player.
+
+        Parameters
+        ----------
+        bitrate: int
+            Bitrate in bits per second (e.g., 8000 for 8kbps, 64000, 160000, or -1 for MAX).
+        """
+        return await self.set_audio_config(bitrate=bitrate)
 
     async def set_volume(self, value: int = 100, /) -> None:
         """Set the :class:`Player` volume, as a percentage, between 0 and 1000.
