@@ -549,7 +549,7 @@ class Node:
                 raise LavalinkException(data=exc_data)
 
     async def _update_audio(self, guild_id: int, /, *, data: dict[str, Any]) -> Any:
-        uri: str = f"{self.uri}/v4/sessions/{self.session_id}/players/{guild_id}/audio"
+        uri: str = f"{self.uri}/v4/sessions/{self.session_id}/players/{guild_id}?noReplace=true"
 
         async with self._session.patch(url=uri, json=data, headers=self.headers) as resp:
             if resp.status in (200, 204):
@@ -557,14 +557,25 @@ class Node:
                     return await resp.json()
                 except Exception:
                     return None
-            else:
+            elif resp.status == 404:
+                uri_alt = f"{self.uri}/v4/sessions/{self.session_id}/players/{guild_id}/audio"
                 try:
-                    exc_data: ErrorResponse = await resp.json()
-                except Exception as e:
-                    logger.warning("An error occured making an audio request on %r: %s", self, e)
-                    raise NodeException(status=resp.status)
+                    async with self._session.patch(url=uri_alt, json=data, headers=self.headers) as resp_alt:
+                        if resp_alt.status in (200, 204):
+                            try:
+                                return await resp_alt.json()
+                            except Exception:
+                                return None
+                except Exception:
+                    pass
 
-                raise LavalinkException(data=exc_data)
+            try:
+                exc_data: ErrorResponse = await resp.json()
+            except Exception as e:
+                logger.warning("An error occured making an audio request on %r: %s", self, e)
+                raise NodeException(status=resp.status)
+
+            raise LavalinkException(data=exc_data)
 
     async def _destroy_player(self, guild_id: int, /) -> None:
         uri: str = f"{self.uri}/v4/sessions/{self.session_id}/players/{guild_id}"
